@@ -17,11 +17,11 @@ func (err BankErr) Error() string {
 
 type auth_send struct {
 	Msg     string `num:"0"  fmt:"fix"    en:"bcdl"  len:"4"`
-	ProNum  string `num:"3"  fmt:"fix"    en:"bcdl"  len:"6"`
+	ProNum  string `num:"3"  fmt:"fix"    en:"bcdr"  len:"7"`
 	SpcCode string `num:"25" fmt:"fix"    en:"bcdl"  len:"2"`
 	TermiId string `num:"41" fmt:"fix"    en:"ascii" len:"8"`
 	MerId   string `num:"42" fmt:"fix"    en:"ascii" len:"15"`
-	OperId  string `num:"60" fmt:"lllvar" en:"hex"   len:"3"`
+	OperId  string `num:"60" fmt:"fix"    en:"hex"   len:"3"`
 	SafeArg []byte `num:"61" fmt:"lllvar" en:"hex"   len:"999" lll:"bcdr"`
 }
 
@@ -55,12 +55,30 @@ func Marshal(o interface{}) ([]byte, error) {
 func structFieldTags(filed reflect.StructField) (tag, error) {
 	tags := make(map[string]string)
 
-	tags["num"] = filed.Tag.Get("num")
-	tags["fmt"] = filed.Tag.Get("fmt")
-	tags["en"] = filed.Tag.Get("en")
-	tags["len"] = filed.Tag.Get("len")
-	tags["ll"] = filed.Tag.Get("ll")
-	tags["lll"] = filed.Tag.Get("lll")
+	val := filed.Tag.Get("num")
+	if val != "" {
+		tags["num"] = val
+	}
+	val = filed.Tag.Get("fmt")
+	if val != "" {
+		tags["fmt"] = val
+	}
+	val = filed.Tag.Get("en")
+	if val != "" {
+		tags["en"] = val
+	}
+	val = filed.Tag.Get("len")
+	if val != "" {
+		tags["len"] = val
+	}
+	val = filed.Tag.Get("ll")
+	if val != "" {
+		tags["ll"] = val
+	}
+	val = filed.Tag.Get("lll")
+	if val != "" {
+		tags["lll"] = val
+	}
 	return tags, nil
 }
 func buildDataByTag(data reflect.Value, tags tag) ([]byte, error) {
@@ -92,7 +110,7 @@ func buildStringByTag(s string, tags tag) ([]byte, error) {
 	)
 
 	if fmt, ok = tags["fmt"]; !ok {
-		return nil, BankErr{"2", "没有指定fmt标签"}
+		return nil, BankErr{"-2", "没有指定fmt标签"}
 	}
 	switch fmt {
 	case "fix":
@@ -100,7 +118,7 @@ func buildStringByTag(s string, tags tag) ([]byte, error) {
 	case "llvar":
 	case "lllvar":
 	default:
-		return nil, BankErr{"3", "无效的fmt标签值"}
+		return nil, BankErr{"-3", "无效的fmt标签值"}
 	}
 	return out, err
 }
@@ -113,43 +131,89 @@ func buildFix(s []byte, tags tag) ([]byte, error) {
 		ok       bool
 	)
 	if encoding, ok = tags["en"]; !ok {
-		return nil, BankErr{"4", "没有指定编码属性"}
+		return nil, BankErr{"-4", "没有指定编码属性"}
 	}
 	switch encoding {
 	case "ascii":
 		out, err = buildAscii(s, tags)
 	case "bcdl":
+		out, err = buildBcdl(s, tags)
 	case "bcdr":
+		out, err = buildBcdr(s, tags)
 	case "hex":
+		buildHex := buildAscii
+		out, err = buildHex(s, tags)
 	default:
-		return nil, BankErr{"5", "无效的编码属性"}
+		return nil, BankErr{"-5", "无效的编码属性"}
 	}
 	return out, err
 }
 
 func buildAscii(s []byte, tags tag) ([]byte, error) {
-	l, ok := tags["len"]
-	if !ok {
-		return nil, BankErr{"6", "没有指定长度标签"}
-	}
-	if l == "" {
-		return nil, BankErr{"7", "无效的长度标签"}
-	}
+	l, _ := tags["len"]
 	length, err := strconv.Atoi(l)
 	if err != nil {
-		fmt.Println(err)
-		return nil, BankErr{"8", "无效的长度标签"}
+		return nil, BankErr{"-8", "无效的长度标签"}
 	}
 	if length != len(s) {
-		return nil, BankErr{"9", "长度不符合标签定义"}
+		return nil, BankErr{"-9", "长度不符合标签定义"}
 	}
 	return s, nil
 }
+func buildBcdl(s []byte, tags tag) ([]byte, error) {
+	l, _ := tags["len"]
+	length, err := strconv.Atoi(l)
+	if err != nil {
+		return nil, BankErr{"-10", "无效的长度标签"}
+	}
+	if length != len(s) {
+		return nil, BankErr{"-11", "长度不符合标签定义"}
+	}
+	tmp := make([]byte, 0)
+	tmp = append(tmp, s...)
+	if len(tmp)%2 != 0 {
+		tmp = append(tmp, "\x00"...)
+	}
+	return toBcd(tmp), nil
+}
+
+func buildBcdr(s []byte, tags tag) ([]byte, error) {
+	l, _ := tags["len"]
+	length, err := strconv.Atoi(l)
+	if err != nil {
+		return nil, BankErr{"-12", "无效的长度标签"}
+	}
+	if length != len(s) {
+		return nil, BankErr{"-13", "长度不符合标签定义"}
+	}
+	tmp := make([]byte, 0)
+	if len(s)%2 != 0 {
+		tmp = append(tmp, "\x00"...)
+	}
+	tmp = append(tmp, s...)
+	return toBcd(tmp), nil
+}
+func toBcd(s []byte) []byte {
+	out := make([]byte, len(s)/2)
+	k := 0
+	for i := 0; i < len(out); i++ {
+		out[i] = ((s[k] & 0x0f) << 4) | (s[k+1] & 0x0f)
+		k += 2
+	}
+	return out
+}
+
 func buildSliceByTag(s []byte, tags tag) ([]byte, error) {
 	return s, nil
 }
 func main() {
-	auth := auth_send{"ddd", "343", "454", "12345678", "999999999911111", "tgt", []byte("gggg")}
+	auth := auth_send{"0820",
+		"1234567",
+		"99",
+		"12345678",
+		"999999999911111",
+		"\xA0\x01\x01",
+		[]byte("gggg")}
 	_, err := Marshal(auth)
 	if err != nil {
 		fmt.Println(err)
