@@ -16,13 +16,13 @@ func (err BankErr) Error() string {
 }
 
 type auth_send struct {
-	Msg     string `num:"0"  fmt:"fix"    en:"bcdl"  len:"4"`
-	ProNum  string `num:"3"  fmt:"fix"    en:"bcdr"  len:"7"`
-	SpcCode string `num:"25" fmt:"fix"    en:"bcdl"  len:"2"`
-	TermiId string `num:"41" fmt:"fix"    en:"ascii" len:"8"`
-	MerId   string `num:"42" fmt:"fix"    en:"ascii" len:"15"`
-	OperId  string `num:"60" fmt:"fix"    en:"hex"   len:"3"`
-	SafeArg []byte `num:"61" fmt:"lllvar" en:"hex"   len:"999" lll:"bcdr"`
+	Msg     string `num:"0"    fmt:"fix"    en:"bcdl"  len:"4"`
+	ProNum  string `num:"3"    fmt:"fix"    en:"bcdr"  len:"7"`
+	SpcCode string `num:"25"   fmt:"fix"    en:"bcdl"  len:"2"`
+	TermiId string `num:"41"   fmt:"llvar"  en:"ascii" len:"35"  ll:"bcdl"`
+	MerId   string `num:"42"   fmt:"llvar"  en:"ascii" len:"15"  ll:"bcdr"`
+	OperId  string `num:"60"   fmt:"llvar"  en:"ascii" len:"5"   ll:"hex"`
+	//SafeArg []byte `num:"61" fmt:"llvar"  en:"ascii" len:"999" ll:"ascii"`
 }
 
 type tag map[string]string
@@ -47,7 +47,10 @@ func Marshal(o interface{}) ([]byte, error) {
 			return nil, BankErr{typ.Field(i).Name, err.Error()}
 		}
 	}
-	fmt.Printf("%v\n", isomap)
+	//fmt.Printf("%v\n", isomap)
+	for k, v := range isomap {
+		fmt.Printf("%s:%x\n", k, v)
+	}
 
 	return nil, nil
 }
@@ -116,6 +119,7 @@ func buildStringByTag(s string, tags tag) ([]byte, error) {
 	case "fix":
 		out, err = buildFix([]byte(s), tags)
 	case "llvar":
+		out, err = buildLlvar([]byte(s), tags)
 	case "lllvar":
 	default:
 		return nil, BankErr{"-3", "无效的fmt标签值"}
@@ -123,14 +127,73 @@ func buildStringByTag(s string, tags tag) ([]byte, error) {
 	return out, err
 }
 
-func buildFix(s []byte, tags tag) ([]byte, error) {
+func buildLlvar(s []byte, tags tag) ([]byte, error) {
 	var (
 		out      []byte
 		err      error
 		encoding string
-		ok       bool
 	)
-	if encoding, ok = tags["en"]; !ok {
+
+	//llvar of var
+	if encoding, _ = tags["en"]; encoding == "" {
+		return nil, BankErr{"-14", "没有指定编码属性"}
+	}
+	l := 0
+	if l, err = strconv.Atoi(tags["len"]); err != nil {
+		return nil, BankErr{"-15", "无效的长度标签"}
+	}
+	if len(s) > l {
+		return nil, BankErr{"-16", "长度不符合标签定义"}
+	}
+
+	tags["len"] = strconv.Itoa(len(s))
+	if out, err = buildFix(s, tags); err != nil {
+		return nil, err
+	}
+	//llvar of ll
+	ll := ""
+	if ll, _ = tags["ll"]; ll == "" {
+		return nil, BankErr{"-17", "ll-没有指定编码属性"}
+	}
+	out_last := make([]byte, 0)
+	switch ll {
+	case "ascii":
+		out_last = append(out_last, fmt.Sprintf("%d", len(out))...)
+		out_last = append(out_last, out...)
+	case "bcdl":
+		olen := fmt.Sprintf("%d", len(out))
+		if len(olen) == 1 {
+			olen += "0"
+		}
+		ll_store, _ := buildBcdl([]byte(olen), tag{"len": "2"})
+		out_last = append(out_last, ll_store...)
+		out_last = append(out_last, out...)
+	case "bcdr":
+		olen := fmt.Sprintf("%02d", len(out))
+		ll_store, _ := buildBcdr([]byte(olen), tag{"len": "2"})
+		out_last = append(out_last, ll_store...)
+		out_last = append(out_last, out...)
+	case "hex":
+		var ll_store [2]byte
+		ll_store[0] = byte(len(out) / 256)
+		ll_store[1] = byte(len(out) % 256)
+		out_last = append(out_last, ll_store[0])
+		out_last = append(out_last, ll_store[1])
+		out_last = append(out_last, out...)
+	default:
+		return nil, BankErr{"-18", "ll-无效的编码属性"}
+	}
+
+	return out_last, err
+}
+
+func buildFix(s []byte, tags tag) ([]byte, error) {
+	var (
+		out []byte
+		err error
+	)
+	encoding, _ := tags["en"]
+	if encoding == "" {
 		return nil, BankErr{"-4", "没有指定编码属性"}
 	}
 	switch encoding {
@@ -212,8 +275,7 @@ func main() {
 		"99",
 		"12345678",
 		"999999999911111",
-		"\xA0\x01\x01",
-		[]byte("gggg")}
+		"\xA0\x01\x01"}
 	_, err := Marshal(auth)
 	if err != nil {
 		fmt.Println(err)
