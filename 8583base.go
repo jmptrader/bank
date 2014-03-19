@@ -19,10 +19,10 @@ type auth_send struct {
 	Msg     string `num:"0"    fmt:"fix"    en:"bcdl"  len:"4"`
 	ProNum  string `num:"3"    fmt:"fix"    en:"bcdr"  len:"7"`
 	SpcCode string `num:"25"   fmt:"fix"    en:"bcdl"  len:"2"`
-	TermiId string `num:"41"   fmt:"llvar"  en:"ascii" len:"35"  ll:"bcdl"`
+	TermiId string `num:"41"   fmt:"llvar"  en:"bcdl" len:"35"  ll:"bcdr"`
 	MerId   string `num:"42"   fmt:"llvar"  en:"ascii" len:"15"  ll:"bcdr"`
 	OperId  string `num:"60"   fmt:"llvar"  en:"ascii" len:"5"   ll:"hex"`
-	SafeArg []byte `num:"61"   fmt:"lllvar"  en:"ascii" len:"99" lll:"bcdl"`
+	SafeArg []byte `num:"61"   fmt:"lllvar"  en:"bcdr" len:"99" lll:"bcdl"`
 }
 
 type tag map[string]string
@@ -135,10 +135,10 @@ func buildLlvar(s []byte, tags tag) ([]byte, error) {
 	out_last := make([]byte, 0)
 	switch ll {
 	case "ascii":
-		out_last = append(out_last, fmt.Sprintf("%02d", len(out))...)
+		out_last = append(out_last, fmt.Sprintf("%02d", len(s))...)
 		out_last = append(out_last, out...)
 	case "bcdl":
-		olen := fmt.Sprintf("%d", len(out))
+		olen := fmt.Sprintf("%d", len(s))
 		if len(olen) == 1 {
 			olen += "0"
 		}
@@ -146,14 +146,14 @@ func buildLlvar(s []byte, tags tag) ([]byte, error) {
 		out_last = append(out_last, ll_store...)
 		out_last = append(out_last, out...)
 	case "bcdr":
-		olen := fmt.Sprintf("%02d", len(out))
+		olen := fmt.Sprintf("%02d", len(s))
 		ll_store, _ := buildBcdr([]byte(olen), tag{"len": "2"})
 		out_last = append(out_last, ll_store...)
 		out_last = append(out_last, out...)
 	case "hex":
 		var ll_store [2]byte
-		ll_store[0] = byte(len(out) / 256)
-		ll_store[1] = byte(len(out) % 256)
+		ll_store[0] = byte(len(s) / 256)
+		ll_store[1] = byte(len(s) % 256)
 		out_last = append(out_last, ll_store[0])
 		out_last = append(out_last, ll_store[1])
 		out_last = append(out_last, out...)
@@ -194,10 +194,10 @@ func buildLllvar(s []byte, tags tag) ([]byte, error) {
 	out_last := make([]byte, 0)
 	switch lll {
 	case "ascii":
-		out_last = append(out_last, fmt.Sprintf("%03d", len(out))...)
+		out_last = append(out_last, fmt.Sprintf("%03d", len(s))...)
 		out_last = append(out_last, out...)
 	case "bcdl":
-		olen := fmt.Sprintf("%d", len(out))
+		olen := fmt.Sprintf("%d", len(s))
 		if len(olen) == 1 {
 			olen += "00"
 		}
@@ -208,7 +208,7 @@ func buildLllvar(s []byte, tags tag) ([]byte, error) {
 		out_last = append(out_last, lll_store...)
 		out_last = append(out_last, out...)
 	case "bcdr":
-		olen := fmt.Sprintf("%03d", len(out))
+		olen := fmt.Sprintf("%03d", len(s))
 		lll_store, _ := buildBcdr([]byte(olen), tag{"len": "3"})
 		out_last = append(out_last, lll_store...)
 		out_last = append(out_last, out...)
@@ -322,7 +322,7 @@ func main() {
 	auth := auth_send{"0820",
 		"1234567",
 		"99",
-		"12345678",
+		"1234567",
 		"999999999911111",
 		"\xA0\x01\x01",
 		[]byte("1234567")}
