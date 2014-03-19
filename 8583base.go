@@ -22,7 +22,7 @@ type auth_send struct {
 	TermiId string `num:"41"   fmt:"llvar"  en:"ascii" len:"35"  ll:"bcdl"`
 	MerId   string `num:"42"   fmt:"llvar"  en:"ascii" len:"15"  ll:"bcdr"`
 	OperId  string `num:"60"   fmt:"llvar"  en:"ascii" len:"5"   ll:"hex"`
-	//SafeArg []byte `num:"61" fmt:"llvar"  en:"ascii" len:"999" ll:"ascii"`
+	SafeArg []byte `num:"61"   fmt:"lllvar"  en:"ascii" len:"99" lll:"bcdl"`
 }
 
 type tag map[string]string
@@ -87,7 +87,7 @@ func structFieldTags(filed reflect.StructField) (tag, error) {
 func buildDataByTag(data reflect.Value, tags tag) ([]byte, error) {
 	switch data.Kind() {
 	case reflect.String:
-		s, err := buildStringByTag(data.String(), tags)
+		s, err := buildSliceByTag([]byte(data.String()), tags)
 		if err != nil {
 			return nil, err
 		}
@@ -102,29 +102,6 @@ func buildDataByTag(data reflect.Value, tags tag) ([]byte, error) {
 		s := fmt.Sprintf("[%s]-无效的数据格式字段", data.Kind().String())
 		return nil, BankErr{"1", s}
 	}
-}
-
-func buildStringByTag(s string, tags tag) ([]byte, error) {
-	var (
-		out []byte
-		err error
-		fmt string
-		ok  bool
-	)
-
-	if fmt, ok = tags["fmt"]; !ok {
-		return nil, BankErr{"-2", "没有指定fmt标签"}
-	}
-	switch fmt {
-	case "fix":
-		out, err = buildFix([]byte(s), tags)
-	case "llvar":
-		out, err = buildLlvar([]byte(s), tags)
-	case "lllvar":
-	default:
-		return nil, BankErr{"-3", "无效的fmt标签值"}
-	}
-	return out, err
 }
 
 func buildLlvar(s []byte, tags tag) ([]byte, error) {
@@ -158,7 +135,7 @@ func buildLlvar(s []byte, tags tag) ([]byte, error) {
 	out_last := make([]byte, 0)
 	switch ll {
 	case "ascii":
-		out_last = append(out_last, fmt.Sprintf("%d", len(out))...)
+		out_last = append(out_last, fmt.Sprintf("%02d", len(out))...)
 		out_last = append(out_last, out...)
 	case "bcdl":
 		olen := fmt.Sprintf("%d", len(out))
@@ -186,7 +163,61 @@ func buildLlvar(s []byte, tags tag) ([]byte, error) {
 
 	return out_last, err
 }
+func buildLllvar(s []byte, tags tag) ([]byte, error) {
+	var (
+		out      []byte
+		err      error
+		encoding string
+	)
 
+	//lllvar of var
+	if encoding, _ = tags["en"]; encoding == "" {
+		return nil, BankErr{"-20", "没有指定编码属性"}
+	}
+	l := 0
+	if l, err = strconv.Atoi(tags["len"]); err != nil {
+		return nil, BankErr{"-21", "无效的长度标签"}
+	}
+	if len(s) > l {
+		return nil, BankErr{"-22", "长度不符合标签定义"}
+	}
+
+	tags["len"] = strconv.Itoa(len(s))
+	if out, err = buildFix(s, tags); err != nil {
+		return nil, err
+	}
+	//lllvar of ll
+	lll := ""
+	if lll, _ = tags["lll"]; lll == "" {
+		return nil, BankErr{"-23", "lll-没有指定编码属性"}
+	}
+	out_last := make([]byte, 0)
+	switch lll {
+	case "ascii":
+		out_last = append(out_last, fmt.Sprintf("%03d", len(out))...)
+		out_last = append(out_last, out...)
+	case "bcdl":
+		olen := fmt.Sprintf("%d", len(out))
+		if len(olen) == 1 {
+			olen += "00"
+		}
+		if len(olen) == 2 {
+			olen += "0"
+		}
+		lll_store, _ := buildBcdl([]byte(olen), tag{"len": "3"})
+		out_last = append(out_last, lll_store...)
+		out_last = append(out_last, out...)
+	case "bcdr":
+		olen := fmt.Sprintf("%03d", len(out))
+		lll_store, _ := buildBcdr([]byte(olen), tag{"len": "3"})
+		out_last = append(out_last, lll_store...)
+		out_last = append(out_last, out...)
+	default:
+		return nil, BankErr{"-24", "lll-无效的编码属性"}
+	}
+
+	return out_last, err
+}
 func buildFix(s []byte, tags tag) ([]byte, error) {
 	var (
 		out []byte
@@ -267,7 +298,25 @@ func toBcd(s []byte) []byte {
 }
 
 func buildSliceByTag(s []byte, tags tag) ([]byte, error) {
-	return s, nil
+	var (
+		out []byte
+		err error
+		fmt string
+	)
+	if fmt, _ = tags["fmt"]; fmt == "" {
+		return nil, BankErr{"-19", "没有指定fmt标签"}
+	}
+	switch fmt {
+	case "fix":
+		out, err = buildFix(s, tags)
+	case "llvar":
+		out, err = buildLlvar(s, tags)
+	case "lllvar":
+		out, err = buildLllvar(s, tags)
+	default:
+		return nil, BankErr{"-3", "无效的fmt标签值"}
+	}
+	return out, err
 }
 func main() {
 	auth := auth_send{"0820",
@@ -275,7 +324,8 @@ func main() {
 		"99",
 		"12345678",
 		"999999999911111",
-		"\xA0\x01\x01"}
+		"\xA0\x01\x01",
+		[]byte("1234567")}
 	_, err := Marshal(auth)
 	if err != nil {
 		fmt.Println(err)
